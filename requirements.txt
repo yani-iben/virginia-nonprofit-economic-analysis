@@ -1,0 +1,13 @@
+pandas
+numpy
+matplotlib
+seaborn
+plotly
+statsmodels
+geopandas
+mapclassify
+pyogrio
+openpyxl
+fastparquet
+spacy
+gensim

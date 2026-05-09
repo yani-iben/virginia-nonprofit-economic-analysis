@@ -1,0 +1,22 @@
+name: va-nonprofit-impact
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pandas
+  - numpy
+  - matplotlib
+  - seaborn
+  - plotly
+  - statsmodels
+  - geopandas
+  - mapclassify
+  - pyogrio
+  - openpyxl
+  - fastparquet
+  - pyldavis
+  - gensim
+  - spacy
+  - pip:
+    - nlp-rake  
