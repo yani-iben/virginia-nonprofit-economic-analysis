@@ -1,157 +1,219 @@
-"""
-data_cleaning.py
-----------------
-Handles the ingestion and normalization of IRS Form 990 Core, EZ, and PF data.
-
-LIMITATION: As of May 2026, the 2023 Financial Extracts are the most complete 
-available. This script accounts for the ~10% salary variance from the 
-CNE 2026 Report by standardizing join keys across disparate IRS schemas.
-"""
 import pandas as pd
 import numpy as np
+import os
+from transformers import pipeline
+import logging
+
+# Setting up logging for pipeline transparency
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+def safe_load_csv(path):
+    """Utility to load CSV with error handling and logging."""
+    if not os.path.exists(path):
+        logging.error(f"File not found: {path}")
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, low_memory=False)
+        df.columns = df.columns.str.strip()
+        logging.info(f"Successfully loaded {path} with {len(df)} records.")
+        return df
+    except Exception as e:
+        logging.error(f"Failed to load {path}: {e}")
+        return pd.DataFrame()
+
+#Schema Mapping
+IRS_SCHEMA_MAP = {
+    'CORE': {
+        'Revenue_Grants_Unified': 'totcntrbgfts',
+        'Total_Revenue_Unified': 'totrevenue',
+        'Total_Exp_Unified': 'totfuncexpns',
+        'Employee_Count_Unified': 'noemplyeesw3cnt',
+        'comp_cols': ['compnsatncurrofcr', 'othrsalwages', 'pensionplancontrb', 'othremplyeebenef']
+    },
+    'EZ': {
+        'Revenue_Grants_Unified': 'totcntrb',
+        'Total_Revenue_Unified': 'totrevnue',
+        'Total_Exp_Unified': 'totexpns',
+        'Employee_Count_Unified': None,
+        'comp_cols': ['salaries_amt']
+    },
+    'PF': {
+        'Revenue_Grants_Unified': 'GRSCONTRGIFTS',
+        'Total_Revenue_Unified': 'TOTRCPTPERBKS',
+        'Total_Exp_Unified': 'TOTEXPNSPBKS',
+        'Employee_Count_Unified': None,
+        'comp_cols': ['COMPOFFICERS', 'PENSPLEMPLBENF']
+    }
+}
+
+def _process_numeric(df, raw_col):
+    """Internal helper to safely convert IRS strings to floats."""
+    if raw_col and raw_col in df.columns:
+        return pd.to_numeric(df[raw_col], errors='coerce').fillna(0)
+    return 0
+
+def standardize_and_stack_financials(core_path, ez_path, pf_path):
+    """
+    Harmonizes disparate IRS schemas (Core, EZ, PF) into a unified dataset.
+    Uses dynamic mapping to ensure infrastructure stability.
+    """
+    path_map = {'CORE': core_path, 'EZ': ez_path, 'PF': pf_path}
+    all_extracts = []
+
+    for form_type, path in path_map.items():
+        df = safe_load_csv(path)
+        if df.empty:
+            continue
+            
+        mapping = IRS_SCHEMA_MAP[form_type]
+        processed_df = pd.DataFrame()
+        
+        # Standardize join key
+        df.columns = [c.upper() if c.lower() == 'ein' else c for c in df.columns]
+        processed_df['EIN'] = df['EIN'].astype(str).str.split('.').str[0].str.zfill(9)
+        
+        # Map Unified Financials
+        processed_df['Revenue_Grants_Unified'] = _process_numeric(df, mapping['Revenue_Grants_Unified'])
+        processed_df['Total_Revenue_Unified'] = _process_numeric(df, mapping['Total_Revenue_Unified'])
+        processed_df['Total_Exp_Unified'] = _process_numeric(df, mapping['Total_Exp_Unified'])
+        processed_df['Employee_Count_Unified'] = _process_numeric(df, mapping['Employee_Count_Unified'])
+        
+        # Map Compensation (Summing multiple columns if necessary)
+        comp_data = pd.DataFrame(
+            {c: _process_numeric(df, c) for c in mapping['comp_cols']},
+            index=df.index
+        )
+        processed_df['Total_Comp_Unified'] = comp_data.sum(axis=1)
+        
+        # Carry over tax period if available
+        if 'tax_pd' in df.columns:
+            processed_df['tax_pd'] = df['tax_pd']
+        elif 'TAX_PERIOD' in df.columns:
+            processed_df['tax_pd'] = df['TAX_PERIOD']
+
+        all_extracts.append(processed_df)
+
+    if not all_extracts:
+        return pd.DataFrame()
+
+    return pd.concat(all_extracts, axis=0, ignore_index=True)
 
 def clean_nonprofit_data(file_path, ntee_map_path='../data/ntee_simple.csv'):
     """
-    Ingests raw IRS BMF data and filters for the 503c VA charitable nonprofits.
+    Ingests raw IRS BMF data and filters for 501c3 VA nonprofits.
+    Extracts the single-character NTEE prefix to map macro categories cleanly,
+    preventing multi-character alphanumeric string collisions.
     """
-    # Use low_memory=False for BMF CSVs to avoid type guessing errors
-    df = pd.read_csv(file_path, low_memory=False)
+    df = safe_load_csv(file_path)
+    if df.empty: 
+        return df
+
+    # Enforce administrative universe constraints
+    df = df[(df['STATE'] == 'VA') & (df['SUBSECTION'] == 3) & (df['STATUS'] == 1)].copy()
     
-    # Filtering upon organizations in Virginia
-    df = df[df['STATE'] == 'VA'].copy()
+    # Extract the foundational first letter (e.g., 'B43' -> 'B')
+    df['type_prefix'] = df['NTEE_CD'].str[0].fillna('Z').str.upper()
     
-    # Subsection 3 = 501(c)(3); Status 1 = Active
-    mask = (df['SUBSECTION'] == 3) & (df['STATUS'] == 1)
-    df = df[mask].copy()
-    
-    # Using the NTEE Code to group nonprofits into broad sectors
-    # Extract the first letter (Prefix) to get the broad sector
-    def get_ntee_prefix(val):
-        if isinstance(val, str) and len(val) > 0:
-            return val[0]
-        return 'Z' # 'Z' represents the "Unclassified" groups
-        
-    df['type_prefix'] = df['NTEE_CD'].apply(get_ntee_prefix)
-    
-    # 5. Mapping Human-Readable Labels
     try:
+        # Load look-up index matrix
         codes = pd.read_csv(ntee_map_path)
+        
+        # Build dictionary from Code letter to Category name
         label_map = codes.set_index('Code')['Category'].to_dict()
-        df['Organization_Type'] = df['type_prefix'].map(label_map)
+        
+        # Map the single prefix letter to the text category name
+        df['Category'] = df['type_prefix'].map(label_map).fillna('Unknown')
     except FileNotFoundError:
-        print(f"Warning: {ntee_map_path} not found. Skipping label mapping.")
-    
-    # Focusing on financial columns for economic impact analysis
-    finance_cols = ['REVENUE_AMT', 'ASSET_AMT', 'INCOME_AMT']
-    for col in finance_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            # arcsinh handles high variance (large hospitals vs small charities)
-            df[f'{col}_transformed'] = np.arcsinh(df[col])
-            
+        logging.warning(f"Label map not found at {ntee_map_path}. Defaulting categories to 'Unknown'.")
+        df['Category'] = 'Unknown'
+        
     return df
 
 def enrich_with_financials(df_bmf, finance_df):
-    """
-    The final merge step with string cleaning and deduplication.
-    Standardizes EINs to ensure a high match rate between the Masterfile 
-    and the stacked financial extracts.
-    """
-    # Standardize EINs to 9-digit strings to ensure they match
-    # This handles cases where EINs are read as floats (123.0) or ints
+    """Deduplicates and merges Masterfile with financial extracts."""
+    if finance_df.empty: return df_bmf
+    
+    # Ensure EIN consistency
     df_bmf['EIN'] = df_bmf['EIN'].astype(str).str.split('.').str[0].str.zfill(9)
-    finance_df['EIN'] = finance_df['EIN'].astype(str).str.split('.').str[0].str.zfill(9)
     
-    # Deduplicate Finance Data
-    # If an organization appears twice, we keep the most recent tax period
-    if 'tax_pd' in finance_df.columns:
-        finance_df = finance_df.sort_values('tax_pd', ascending=False).drop_duplicates('EIN')
-    else:
-        finance_df = finance_df.drop_duplicates('EIN')
+    # Deduplicate: Keep most recent tax filing
+    sort_col = 'tax_pd' if 'tax_pd' in finance_df.columns else 'EIN'
+    finance_df = finance_df.sort_values(sort_col, ascending=False).drop_duplicates('EIN')
     
-    # Perform the Left Join
-    # We keep all VA nonprofits from the BMF and add financial data where available
     merged_df = pd.merge(df_bmf, finance_df, on='EIN', how='left')
     
-    # Fill missing financials with 0 for organizations that didn't have an extract.
+    # Vectorized fillna for performance
     fill_cols = ['Total_Comp_Unified', 'Employee_Count_Unified', 'Revenue_Grants_Unified', 'Total_Exp_Unified']
-    for col in fill_cols:
-        if col in merged_df.columns:
-            merged_df[col] = merged_df[col].fillna(0)
+    merged_df[fill_cols] = merged_df[fill_cols].fillna(0)
             
     return merged_df
-def standardize_and_stack_financials(core_path, ez_path, pf_path):
+
+def classify_tech_policy_nlp(df, sample_size=100):
     """
-    Loads, maps, and stacks the three different IRS filing types (Core, EZ, PF).
-    Harmonizes disparate schemas into a unified financial dataset.
+    Leverages a Pre-trained NLP Transformer model 
+    to classify the strategic mission orientation of high-impact entities.
     """
+    logging.info("Initializing Hugging Face Zero-Shot Classification Pipeline...")
+    classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
     
-    # IRS CORE Dataset (Large Organizations - Form 990)
-    df_core = pd.read_csv(core_path, low_memory=False)
-    df_core.columns = df_core.columns.str.strip()
+    # Filter for top entities by expenditure to optimize compute time
+    top_entities = df.nlargest(sample_size, 'Total_Exp_Unified').copy()
+    candidate_labels = ["Technology Policy and Research", "Traditional Community Service", "Healthcare and Education"]
     
-    # Mapping Core Financials
-    df_core['Revenue_Grants_Unified'] = pd.to_numeric(df_core['totcntrbgfts'], errors='coerce').fillna(0) if 'totcntrbgfts' in df_core.columns else 0
-    df_core['Total_Revenue_Unified'] = pd.to_numeric(df_core['totrevenue'], errors='coerce').fillna(0) if 'totrevenue' in df_core.columns else 0
-    df_core['Total_Exp_Unified'] = pd.to_numeric(df_core['totfuncexpns'], errors='coerce').fillna(0) if 'totfuncexpns' in df_core.columns else 0
-    
-    # Mapping Core Compensation
-    core_comp_cols = ['compnsatncurrofcr', 'othrsalwages', 'pensionplancontrb', 'othremplyeebenef']
-    for c in core_comp_cols:
-        df_core[c] = pd.to_numeric(df_core[c], errors='coerce').fillna(0) if c in df_core.columns else 0
-    df_core['Total_Comp_Unified'] = df_core[core_comp_cols].sum(axis=1)
-    df_core['Employee_Count_Unified'] = pd.to_numeric(df_core['noemplyeesw3cnt'], errors='coerce').fillna(0) if 'noemplyeesw3cnt' in df_core.columns else 0
+    classifications = []
+    for idx, row in top_entities.iterrows():
+        # Clean text string combining name and operational category
+        text_to_classify = f"{row['NAME']} - Sector: {row['Category']}"
+        try:
+            res = classifier(text_to_classify, candidate_labels)
+            # Capture the highest probability label
+            top_label = res['labels'][0]
+            classifications.append(top_label)
+        except Exception:
+            classifications.append("Unclassified")
+            
+    top_entities['NLP_Model_Classification'] = classifications
+    return top_entities
 
-    # IRS EZ Dataset (Mid-Sized Organizations - Form 990-EZ)
-    df_ez = pd.read_csv(ez_path, low_memory=False)
-    df_ez.columns = df_ez.columns.str.strip()
-    
-    # Mapping EZ Financials
-    df_ez['Revenue_Grants_Unified'] = pd.to_numeric(df_ez['totcntrb'], errors='coerce').fillna(0) if 'totcntrb' in df_ez.columns else 0
-    df_ez['Total_Revenue_Unified'] = pd.to_numeric(df_ez['totrevnue'], errors='coerce').fillna(0) if 'totrevnue' in df_ez.columns else 0
-    df_ez['Total_Exp_Unified'] = pd.to_numeric(df_ez['totexpns'], errors='coerce').fillna(0) if 'totexpns' in df_ez.columns else 0
-    
-    # Mapping EZ Compensation (Often aggregated in salaries_amt)
-    ez_comp_col = 'salaries_amt' if 'salaries_amt' in df_ez.columns else 'totexpns'
-    df_ez['Total_Comp_Unified'] = pd.to_numeric(df_ez.get(ez_comp_col, 0), errors='coerce').fillna(0)
-    df_ez['Employee_Count_Unified'] = 0 # EZ forms rarely provide a reliable W3 count
-
-    # 3. IRS PF Dataset (Private Foundations - Form 990-PF)
-    df_pf = pd.read_csv(pf_path, low_memory=False)
-    df_pf.columns = df_pf.columns.str.strip()
-    
-    # Mapping PF Financials
-    df_pf['Revenue_Grants_Unified'] = pd.to_numeric(df_pf['GRSCONTRGIFTS'], errors='coerce').fillna(0) if 'GRSCONTRGIFTS' in df_pf.columns else 0
-    df_pf['Total_Revenue_Unified'] = pd.to_numeric(df_pf['TOTRCPTPERBKS'], errors='coerce').fillna(0) if 'TOTRCPTPERBKS' in df_pf.columns else 0
-    df_pf['Total_Exp_Unified'] = pd.to_numeric(df_pf['TOTEXPNSPBKS'], errors='coerce').fillna(0) if 'TOTEXPNSPBKS' in df_pf.columns else 0
-    
-    # Mapping PF Compensation
-    pf_comp_cols = ['COMPOFFICERS', 'PENSPLEMPLBENF'] 
-    for c in pf_comp_cols:
-        df_pf[c] = pd.to_numeric(df_pf[c], errors='coerce').fillna(0) if c in df_pf.columns else 0
-    df_pf['Total_Comp_Unified'] = df_pf[pf_comp_cols].sum(axis=1)
-    df_pf['Employee_Count_Unified'] = 0
-
-    # 4. STACK AND UNIFY
-    # Ensure EIN is treated consistently across all dataframes
-    for df_temp in [df_core, df_ez, df_pf]:
-        df_temp.columns = [c.upper() if c.lower() == 'ein' else c for c in df_temp.columns]
-
-    # These are the columns that will survive the concatenation
-    keep_cols = [
-        'EIN', 
-        'Revenue_Grants_Unified', 
-        'Total_Revenue_Unified', 
-        'Total_Exp_Unified',
-        'Total_Comp_Unified', 
-        'Employee_Count_Unified', 
-        'tax_pd'
+def remediate_unknown_categories_granular(df):
+    """
+    Programmatically remediates 'Unknown' data gaps
+    and general classifications using a granular, policy-aligned taxonomy
+    via a pre-trained Zero-Shot Transformer pipeline.
+    """
+    # Define an explicit, granular target matrix for the NLP model
+    policy_labels = [
+        "National Security & Tech Policy",
+        "Advanced R&D & Computing",
+        "STEM Talent Pipelines",
+        "Direct Community Human Services",
+        "Healthcare Infrastructure"
     ]
     
-    all_extracts = []
-    for df_temp in [df_core, df_ez, df_pf]:
-        # Filter for only the columns that exist in the temporary dataframe
-        available_cols = [c for c in keep_cols if c in df_temp.columns]
-        all_extracts.append(df_temp[available_cols])
-
-    return pd.concat(all_extracts, axis=0, ignore_index=True)
+    # Isolate rows that are unmapped or tagged generic "Unknown"
+    target_mask = (df['Category'] == 'Unknown') | (df['Category'].fillna('').str.upper() == 'UNKNOWN')
+    target_count = target_mask.sum()
+    
+    if target_count == 0:
+        logging.info("No unmapped entities detected for granular remediation.")
+        return df
+        
+    logging.info(f"NLP Deep-Dive: Classifying {target_count} records into advanced taxonomy...")
+    
+    # Initialize the robust BART classification model
+    classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    
+    # Batch process or iterate over target slices to handle predictions safely
+    for idx, row in df[target_mask].iterrows():
+        # Combine entity name and NTEE sub-code string text if available for maximum model context
+        text_context = f"Organization Name: {row['NAME']}. Primary Tax Metadata: {row['NTEE_CD']}"
+        
+        try:
+            res = classifier(text_context, policy_labels)
+            # Impute the highest probability semantic category directly back into the dataset
+            df.at[idx, 'Category'] = res['labels'][0]
+        except Exception as e:
+            continue
+            
+    logging.info("Advanced taxonomy expansion complete.")
+    return df
