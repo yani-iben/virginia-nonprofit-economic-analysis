@@ -26,7 +26,7 @@ The project is built on a highly modular, decoupled object-oriented architecture
 ## **Pipeline Flow & Engineering Mechanics**
 Data Orchestration & Harmonization: The core ETL engine (data_cleaning.py) ingests and normalizes disparate data fields across heterogeneous tax schemas (IRS Forms 990, 990-EZ, and 990-PF) into a single unified financial ledger.
 
-****Deterministic Entity Resolution:** **
+**Deterministic Entity Resolution:** 
 Performs high-integrity string mapping and programmatic disambiguation over 44k+ rows in the IRS Business Masterfile (BMF) using standardized Employer Identification Numbers (EIN) to safely verify major institutional networks.
 
 **Zero-Shot Semantic Inference:** 
