@@ -93,7 +93,7 @@ Evaluating capital allocation shares across the consolidated macro-pillars demon
 Cross-examining the NLP-remediated sector classifications against geospatial grant dependency profiles indicates a strong inverse linear relationship. Merging the regional datasets and calculating a Pearson product-moment correlation coefficient yields:$$\text{Pearson Correlation } (r) = -0.718$$This coefficient indicates that a higher proportional concentration of Technology, R&D, and Policy capital within a region strongly co-occurs with a lower reliance on public grant funding to cover baseline operational expenditures. Conversely, regions dominated by clinical healthcare overhead display high baseline grant-reliance multipliers.
 
 ## 5. Repository Structure
-
+```text
 .
 ├── data/
 │   ├── eo_va.csv                          # Raw IRS Business Master File extract
@@ -111,7 +111,7 @@ Cross-examining the NLP-remediated sector classifications against geospatial gra
 │   ├── data_cleaning.py                   # Data transformation, stacking, and NLP functions
 │   └── utils.py                           # Spatial unioning, matrix math, and plot styles
 └── requirements.txt                       # Project dependency configuration manifest
-
+```
 ## 6. Execution & Deployment Guide
 
 # Initialize virtual environment
