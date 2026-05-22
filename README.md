@@ -54,7 +54,7 @@ The pipeline is implemented as a modular ETL + inference + spatial analytics sys
           |
           v
 [Analytical Outputs & Visualizations]
-
+```
 ### **Core Modules**
 
 * `src/data_cleaning.py`
