@@ -28,19 +28,11 @@ The pipeline operates as a decoupled four-stage lifecycle. Raw data flows from i
   - IRS BMF           - EIN Join              - Zero-Shot Classifier   - County Dissolve
   - 990 Core/EZ/PF    - Schema Alignment      - Confidence Filtering   - Multiplier Mapping
 ```
-Module Breakdown
-src/data_cleaning.py: Implements core ETL processes, schema harmonization rules, and the natural language processing (NLP) category remediation loop.
+### **Module Breakdown**
 
-src/utils.py: Contains geospatial geometry operations, matrix transformations, regional multiplier mappings, and plotting wrappers.
-
-notebooks/economic_intelligence_pipeline.ipynb: Evaluates the end-to-end execution pipeline, logs runtime diagnostics, and outputs the final statistical evaluations.
-
-Module Breakdown
-src/data_cleaning.py: Implements core ETL processes, schema harmonization rules, and the natural language processing (NLP) category remediation loop.
-
-src/utils.py: Contains geospatial geometry operations, matrix transformations, regional multiplier mappings, and plotting wrappers.
-
-notebooks/economic_intelligence_pipeline.ipynb: Evaluates the end-to-end execution pipeline, logs runtime diagnostics, and outputs the final statistical evaluations.
+* `src/data_cleaning.py`: Implements core ETL processes, schema harmonization rules, and the natural language processing (NLP) category remediation loop.
+* `src/utils.py`: Contains geospatial geometry operations, matrix transformations, regional multiplier mappings, and plotting wrappers.
+* `notebooks/economic_intelligence_pipeline.ipynb`: Evaluates the end-to-end execution pipeline, logs runtime diagnostics, and outputs the final statistical evaluations.
 
 ## 3. Pipeline Methodology & Scale
 
