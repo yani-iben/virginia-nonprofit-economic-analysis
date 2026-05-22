@@ -116,7 +116,6 @@ A regional fiscal metric is computed as:
 
 $$\text{Fiscal Load} = \frac{\text{Grant Revenue}}{\text{Total Operating Expenditures}}$$
 
----
 
 ## 5. Outputs
 
@@ -167,7 +166,8 @@ $$r = -0.718$$
 │   ├── data_cleaning.py                   # Data transformation, stacking, and NLP functions
 │   └──
 ```
-##7. Execution Guide 
+## 7. Execution Guide
+
 ```text
 # Initialize virtual environment
 python3 -m venv venv
@@ -175,6 +175,7 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
 ```
 
 ## 8. Limitations
