@@ -115,8 +115,10 @@ Cross-examining the NLP-remediated sector classifications against geospatial gra
 ## 6. Execution & Deployment Guide
 
 **Initialize virtual environment**
+
 python3 -m venv venv
 source venv/bin/activate
 
 **Install required dependencies**
+
 pip install -r requirements.txt
