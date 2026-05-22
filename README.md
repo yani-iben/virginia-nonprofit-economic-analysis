@@ -1,94 +1,155 @@
-# Virginia Nonprofit Economic Intelligence Engine
+# Virginia Nonprofit Economic Intelligence Pipeline
 
-## 1. Project Framing
+## 1. Project Overview
 
-### **Project Overview**
-This project provides an end-to-end data engineering and predictive analytics pipeline designed to quantify the financial footprint, government-grant dependency, and strategic technology asset distribution within Virginia's non-profit sector. 
+This project implements an end-to-end data engineering and analytics pipeline for integrating IRS nonprofit administrative datasets with geospatial boundary data to produce a unified framework for analyzing organizational financial structure, sector classification, and regional distribution patterns within Virginia.
 
-### **Problem Statement**
-Standard administrative classification registries—specifically the IRS National Taxonomy of Exempt Entities (NTEE) codes—frequently misclassify or mask specialized technology research ecosystems, advanced computing labs, and STEM talent pipelines under broad legacy catch-alls (e.g., *Education* or *Social Science Research*). This taxonomic data gap limits the ability of public sector researchers to accurately measure localized technical capacity and regional financial reliance profiles.
+The system performs:
+- Multi-source IRS data ingestion (Form 990, 990-EZ, 990-PF, and Business Master File)
+- Deterministic entity resolution across administrative registries
+- NLP-based classification of unstructured organizational metadata
+- Geospatial aggregation of nonprofit activity by county and region
+- Generation of analytical outputs for sectoral and regional analysis
 
-### **Data Sources**
-* **IRS Business Master File (BMF):** 44,634 active entity records providing baseline administrative metadata for tax-exempt organizations in Virginia.
-* **IRS Form 990 Series Extracts (2023):** Consolidated financial returns spanning Form 990 (Core), 990-EZ (Short Form), and 990-PF (Private Foundation) schemas to extract line-by-line financial data.
-* **GIS Virginia County Boundaries:** Spatial vector datasets mapping localized latitude/longitude data to Virginia Department of Education (VDOE) administrative planning boundaries.
-
-### **High-Level Objective**
-To build a reproducible, automated infrastructure that ingests heterogeneous administrative tax schemas, performs deterministic entity resolution, remediates unclassified sector registries using deep-learning semantic classification, and maps regional financial dependency metrics across administrative planning boundaries.
+The pipeline is modular, reproducible, and designed for extensibility in policy-relevant data workflows.
 
 ---
 
-## 2. System Architecture
+## 2. Data Sources
 
-### **Pipeline Execution Flow**
-The pipeline operates as a decoupled four-stage lifecycle. Raw data flows from ingestion through semantic remediation to spatial aggregation and interactive display.
+### IRS Administrative Datasets
+- **IRS Business Master File (BMF):** ~44,600 Virginia nonprofit entities with standardized organizational metadata
+- **IRS Form 990 Series (2023):**
+  - Form 990 (core filings)
+  - Form 990-EZ (short form filings)
+  - Form 990-PF (private foundation filings)
+
+These datasets provide financial, organizational, and categorical information at varying levels of granularity.
+
+### Geospatial Data
+- **Virginia County Boundary Shapefiles / GIS Metadata**
+  - Used for mapping organizational records to administrative regions
+  - Enables county-level aggregation and regional comparison
+
+---
+
+## 3. System Architecture
+
+The pipeline is implemented as a modular ETL + inference + spatial analytics system.
 
 ```text
-[Raw Ingestion] ──> [Entity Resolution] ──> [Transformer Inference] ──> [Spatial Aggregation]
-  - IRS BMF           - EIN Join              - Zero-Shot Classifier   - County Dissolve
-  - 990 Core/EZ/PF    - Schema Alignment      - Confidence Filtering   - Multiplier Mapping
-```
-### **Module Breakdown**
+[IRS BMF + 990 Extracts]
+          |
+          v
+[ETL & Schema Harmonization]
+          |
+          v
+[Deterministic Entity Resolution (EIN Matching)]
+          |
+          v
+[NLP Classification Layer (Zero-Shot Transformer)]
+          |
+          v
+[Geospatial Aggregation (GeoPandas County Dissolve)]
+          |
+          v
+[Analytical Outputs & Visualizations]
 
-* `src/data_cleaning.py`: Implements core ETL processes, schema harmonization rules, and the natural language processing (NLP) category remediation loop.
-* `src/utils.py`: Contains geospatial geometry operations, matrix transformations, regional multiplier mappings, and plotting wrappers.
-* `notebooks/economic_intelligence_pipeline.ipynb`: Evaluates the end-to-end execution pipeline, logs runtime diagnostics, and outputs the final statistical evaluations.
+### **Core Modules**
 
-## 3. Pipeline Methodology & Scale
+* `src/data_cleaning.py`
+  * ETL pipeline for IRS dataset ingestion and schema normalization
+  * Financial field standardization across Form 990 variants
+  * NLP-based classification utilities
+* `src/utils.py`
+  * Geospatial processing utilities using GeoPandas
+  * Spatial joins and boundary aggregation
+  * Visualization helper functions
+* `notebooks/economic_intelligence_pipeline.ipynb`
+  * End-to-end pipeline execution
+  * Exploratory analysis and validation
+  * Output generation and visualization
 
-**Data Orchestration & Ingestion**
-The transformation engine ingests separate, variable-width IRS extracts, filtering the data to isolate active 501(c)(3) entities registered within Virginia. Financial data across disparate 990, 990-EZ, and 990-PF forms are programmatically mapped and stacked into a unified financial ledger, standardizing reporting schemas into uniform target arrays: Total_Exp_Unified, Total_Revenue_Unified, Revenue_Grants_Unified, and Employee_Count_Unified.
+---
 
-**Entity Resolution**
-Data integration is performed via a deterministic, index-based join matching the filtered Business Master File with the consolidated financial extracts utilizing the unique 9-digit Employer Identification Number (EIN). This process accommodates multi-million row arrays and provides disambiguation across entities reporting under multiple legal names or DBA aliases by prioritizing standardized index variables.
+## 4. Pipeline Methodology
 
-**NLP Classification & Semantic Remediation**
-To resolve the taxonomic data gap, the pipeline filters out rows where initial NTEE lookups resulted in an unclassified registry status ("Other/Unclassified"), isolating 9,585 unmapped rows across 6,724 unique organizational names.
+### **4.1 Data Ingestion & Harmonization**
+IRS Form 990 datasets are normalized into a unified schema to standardize financial reporting fields across variants. Unified fields include:
+* `Total_Revenue_Unified`
+* `Total_Expenditure_Unified`
+* `Revenue_Grants_Unified`
+* `Employee_Count_Unified`
 
-The pipeline runs a multi-class semantic classification using a pre-trained BART-Large-MNLI transformer model. Unique organizational names are evaluated against a custom, five-vector operational taxonomy:
+Records are filtered to active Virginia-based 501(c)(3) organizations.
 
-National Security & Tech Policy
+### **4.2 Entity Resolution**
+Entity matching is performed using deterministic joins on Employer Identification Number (EIN) across the IRS Business Master File and Form 990 datasets. This enables:
+* Cross-dataset identity alignment
+* Deduplication of organizations appearing across multiple filing types
+* Consistent entity-level aggregation
 
-Advanced R&D & Computing
+### **4.3 NLP Classification Layer**
+Unclassified organizational records (`NTEE = "Other/Unclassified"`) are processed using a zero-shot classification model.
+* **Model:** `BART-Large-MNLI`
+* **Task:** Multi-class classification of organizational descriptions
+* **Label space:**
+  1. *National Security & Tech Policy*
+  2. *Advanced R&D & Computing*
+  3. *STEM Talent Pipelines*
+  4. *Healthcare Infrastructure*
+  5. *Community Human Services*
 
-STEM Talent Pipelines
+A confidence threshold of `0.40` is applied:
+* $\ge 0.40 \rightarrow$ assigned predicted category
+* $< 0.40 \rightarrow$ assigned `"Unclassified"`
 
-Direct Community Human Services
+This approach prioritizes classification precision and reduces noise in ambiguous cases.
 
-Healthcare Infrastructure
+### **4.4 Geospatial Aggregation**
+Organizational records are joined with Virginia county boundary geometries using GeoPandas. Key operations include:
+* Spatial join of entities to counties
+* County aggregation into VDOE regional groupings
+* Boundary buffering to reduce geometric artifacts
 
-To eliminate arbitrary imputation noise, a strict 40% confidence score threshold is enforced. Form inputs falling below this boundary are binned neutrally as "Unknown". High-confidence predictions are vectorized and mapped back to the primary database.
+A regional fiscal metric is computed as:
 
-**Geospatial Analysis**
-Using Shapefile metadata and spatial data frames (GeoPandas), county-level geometries are parsed and merged via a geometric union operation (dissolve) based on VDOE regional bounds. To prevent topological gaps or sliver polygon artifacts during the dissolve phase, a spatial buffer of 0.0005 degrees is programmatically applied to the boundary coordinates prior to geometric intersection. Regional "Fiscal Load" is subsequently calculated as the aggregate ratio of government grant revenue relative to total operating expenditures.
+$$\text{Fiscal Load} = \frac{\text{Grant Revenue}}{\text{Total Operating Expenditures}}$$
 
-## 4. Key Outputs & Descriptive Findings
-Data Coverage & Representation
-The deterministic join achieved a 27.4% match rate between the baseline Virginia BMF and the financial extracts, yielding a high-integrity core cohort of 12,226 operating organizations. The remaining unmatched entities represent small-scale or newly formed organizations operating below the mandatory $50,000 threshold required for comprehensive Form 990 filing (Form 990-N "Postcards").
+---
 
-**Macro-Workforce Footprint**
-Total Aggregated Salary Footprint: $22.921 Billion
+## 5. Outputs
 
-Total Reported Active Workforce (W-2/Personnel): 428,023 Employees
+### **Dataset Coverage**
+* **Total matched entities:** 12,226 organizations
+* **Match rate (BMF $\rightarrow$ financial filings):** 27.4%
 
-**Proportional Capital Distributions**
-Evaluating capital allocation shares across the consolidated macro-pillars demonstrates an asymmetric geographic concentration of technology assets:
+Unmatched records primarily correspond to:
+* Form 990-N (e-Postcard) filers
+* Small nonprofits below reporting thresholds
+* Newly registered organizations with incomplete filings
 
-| VDOE Region | Tech, R&D & Policy Share | Healthcare Infrastructure Share | Core Human Services Share | Institutional Foundations Share |
+### **Aggregate Statistics**
+* **Total payroll footprint:** \$22.92B
+* **Total reported workforce:** 428,023 employees
+
+### **Geospatial Distribution Summary**
+
+| VDOE Region | Tech / R&D Share | Healthcare Share | Human Services Share | Institutional Base |
 | :--- | :---: | :---: | :---: | :---: |
-| **Northern Virginia** | **8.2%** | 11.0% | 28.0% | 52.8% |
-| **Central Virginia** | **1.6%** | 34.0% | 22.0% | 42.4% |
-| **All Other Regions** | **<0.1%** | 50.0% – 56.0% | 20.0% – 30.0% | 14.0% – 20.0% |
+| **Northern Virginia** | 8.2% | 11.0% | 28.0% | 52.8% |
+| **Central Virginia** | 1.6% | 34.0% | 22.0% | 42.4% |
+| **Other Regions** | <0.1% | 50.0% – 56.0% | 20.0% – 30.0% | 14.0% – 20.0% |
 
-**Statistical Synthesis & Correlation**
+### **Statistical Output**
+Pearson correlation between regional technology-sector share and grant dependency:
 
-Cross-examining the NLP-remediated sector classifications against geospatial grant dependency profiles indicates a strong inverse linear relationship. Merging the regional datasets and calculating a Pearson product-moment correlation coefficient yields:
+$$r = -0.718$$
 
-$$\text{Pearson Correlation } (r) = -0.718$$
+---
 
-This coefficient indicates that a higher proportional concentration of Technology, R&D, and Policy capital within a region strongly co-occurs with a lower reliance on public grant funding to cover baseline operational expenditures. Conversely, regions dominated by clinical healthcare overhead display high baseline grant-reliance multipliers.
+## 6. Repository Structure
 
-## 5. Repository Structure
 ```text
 .
 ├── data/
@@ -103,19 +164,40 @@ This coefficient indicates that a higher proportional concentration of Technolog
 │   ├── final_clean_distribution.png       # Labeled horizontal share chart
 │   └── vdoe_impact_dashboard_FINAL.html   # Interactive folium map asset
 ├── src/
-│   ├── __init__.py
 │   ├── data_cleaning.py                   # Data transformation, stacking, and NLP functions
-│   └── utils.py                           # Spatial unioning, matrix math, and plot styles
-└── requirements.txt                       # Project dependency configuration manifest
+│   └──
 ```
-## 6. Execution & Deployment Guide
-
-**Initialize virtual environment**
+##7. Execution Guide 
 ```text
+# Initialize virtual environment
 python3 -m venv venv
 source venv/bin/activate
-```
-**Install required dependencies**
-```text
+
+# Install dependencies
 pip install -r requirements.txt
 ```
+
+## 8. Limitations
+
+**Data Freshness:** IRS Business Master File and Form 990 datasets are updated on a weekly to monthly cadence. This introduces lag between organizational changes and their reflection in the dataset.
+
+**Coverage Constraints:** Form 990-N filers are excluded from most financial fields, resulting in underrepresentation of small and very low-revenue nonprofits.
+
+**Entity Resolution Constraints:** Deterministic EIN-based matching does not capture subsidiaries, DBA variations, or organizations with inconsistent registry naming conventions across datasets.
+
+**NLP Classification Uncertainty:** Zero-shot classification using BART-Large-MNLI is sensitive to label design and domain shift. A fixed confidence threshold (0.40) reduces noise but may exclude valid low-confidence classifications.
+
+**Geospatial Aggregation Assumptions:** County-level aggregation may obscure intra-county variation. Minor boundary buffering used for topology correction may introduce negligible spatial distortion.
+
+**Temporal Scope:** Analysis is based on a single fiscal year (2023) and does not capture longitudinal trends in nonprofit activity or funding distribution.
+
+## 9. Reproducibility
+All transformations are deterministic and reproducible. Given identical IRS and GIS inputs, the pipeline produces consistent outputs across runs:
+
+Entity resolution uses fixed EIN-based joins.
+
+NLP classification uses a fixed pretrained checkpoint (BART-Large-MNLI).
+
+Classification thresholds are constant (0.40).
+
+Geospatial aggregation is deterministic given input geometries.
