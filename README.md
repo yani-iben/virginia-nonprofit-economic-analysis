@@ -82,7 +82,41 @@ Total Reported Active Workforce (W-2/Personnel): 428,023 Employees
 **Proportional Capital Distributions**
 Evaluating capital allocation shares across the consolidated macro-pillars demonstrates an asymmetric geographic concentration of technology assets:
 
-VDOE Region,"Tech, R&D & Policy Share",Healthcare Infrastructure Share,Core Human Services Share,Institutional Foundations Share
-Northern Virginia,8.2%,11.0%,28.0%,52.8%
-Central Virginia,1.6%,34.0%,22.0%,42.4%
-All Other Regions,<0.1%,50.0% – 56.0%,20.0% – 30.0%,14.0% – 20.0%
+| VDOE Region | Tech, R&D & Policy Share | Healthcare Infrastructure Share | Core Human Services Share | Institutional Foundations Share |
+| :--- | :---: | :---: | :---: | :---: |
+| **Northern Virginia** | **8.2%** | 11.0% | 28.0% | 52.8% |
+| **Central Virginia** | **1.6%** | 34.0% | 22.0% | 42.4% |
+| **All Other Regions** | **<0.1%** | 50.0% – 56.0% | 20.0% – 30.0% | 14.0% – 20.0% |
+
+**Statistical Synthesis & Correlation**
+
+Cross-examining the NLP-remediated sector classifications against geospatial grant dependency profiles indicates a strong inverse linear relationship. Merging the regional datasets and calculating a Pearson product-moment correlation coefficient yields:$$\text{Pearson Correlation } (r) = -0.718$$This coefficient indicates that a higher proportional concentration of Technology, R&D, and Policy capital within a region strongly co-occurs with a lower reliance on public grant funding to cover baseline operational expenditures. Conversely, regions dominated by clinical healthcare overhead display high baseline grant-reliance multipliers.
+
+## 5. Repository Structure
+
+.
+├── data/
+│   ├── eo_va.csv                          # Raw IRS Business Master File extract
+│   ├── 23eoextract990.csv                  # Raw IRS Form 990 Core financial records
+│   ├── 23eoextractez.csv                  # Raw IRS Form 990-EZ financial records
+│   ├── 23eoextract990pf.csv                # Raw IRS Form 990-PF financial records
+│   └── GIS___Virginia_County_Boundaries.csv # Raw spatial shapefile metadata
+├── notebooks/
+│   └── economic_intelligence_pipeline.ipynb # End-to-end visualization execution environment
+├── results_and_visualizations/
+│   ├── final_clean_distribution.png       # Labeled horizontal share chart
+│   └── vdoe_impact_dashboard_FINAL.html   # Interactive folium map asset
+├── src/
+│   ├── __init__.py
+│   ├── data_cleaning.py                   # Data transformation, stacking, and NLP functions
+│   └── utils.py                           # Spatial unioning, matrix math, and plot styles
+└── requirements.txt                       # Project dependency configuration manifest
+
+## 6. Execution & Deployment Guide
+
+# Initialize virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install required dependencies
+pip install -r requirements.txt
